@@ -3,113 +3,127 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Moto G85 Killer - Nuclear Shader</title>
+    <title>S9 Meltdown - Volumetric</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; color: #fff; font-family: monospace; }
-        #info {
+        
+        #ui-container {
+            position: absolute; bottom: 0; left: 0; width: 100%;
+            background: rgba(20, 0, 0, 0.9);
+            border-top: 3px solid red;
+            padding: 20px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        #stats-box {
             position: absolute; top: 10px; left: 10px;
-            background: rgba(50,0,0,0.8); padding: 10px;
-            border: 2px solid red; pointer-events: none;
+            background: #000; border: 1px solid #0f0;
+            padding: 5px 10px; font-size: 20px; color: #0f0;
+            font-weight: bold; z-index: 10;
         }
-        #fps { font-size: 24px; color: red; font-weight: bold; }
-        #res-control {
-            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-            width: 85%; text-align: center;
-            background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px;
-            border: 1px solid red;
-        }
-        input[type=range] { width: 100%; accent-color: red; margin: 10px 0; }
+
+        input[type=range] { width: 100%; height: 30px; accent-color: red; }
+        
+        .label { display: flex; justify-content: space-between; font-size: 1.2em; margin-bottom: 10px; }
+        .warning { color: red; text-align: center; font-size: 0.9em; margin-top: 5px; }
     </style>
 </head>
 <body>
-    <div id="info">
-        FPS: <span id="fps">Calculando...</span><br>
-        <span style="font-size:12px; color:#faa">Shader: Raymarching Nuclear</span>
-    </div>
 
-    <div id="res-control">
-        <label style="color:red; font-weight:bold;">Nível de Destruição (Resolução)</label>
-        <input type="range" id="pixel-ratio" min="1.0" max="3.0" step="0.1" value="1.5">
-        <div id="res-val" style="color:red; font-weight:bold; font-size:1.2em;">1.5x (Pesado)</div>
-        <div style="font-size:11px; color:#ccc; margin-top:5px;">Coloque em 3.0x para testar o Moto G85.</div>
+    <div id="stats-box">FPS: <span id="fps">0</span></div>
+
+    <div id="ui-container">
+        <div class="label">
+            <span>Resolução (Peso):</span>
+            <span id="res-text" style="color:orange">1.0x</span>
+        </div>
+        <input type="range" id="res-slider" min="0.5" max="4.0" step="0.1" value="1.0">
+        <div class="warning">⚠️ Cuidado: 2.0x já deve travar. 4.0x é tela preta garantida por falta de RAM.</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <script>
-        let camera, scene, renderer, material;
+        let renderer, scene, camera, material, mesh;
         let startTime = Date.now();
         const fpsElem = document.getElementById('fps');
         let frameCount = 0;
         let lastTime = performance.now();
 
-        // --- O SHADER CORRIGIDO E MAIS PESADO ---
+        // SHADER DE VOLUMETRIA (NEBLINA)
+        // Isso é pesado porque ele executa loops longos para cada pixel visível.
         const fragmentShader = `
-            precision highp float; // Força alta precisão (mais pesado)
+            precision highp float;
             uniform float iTime;
             uniform vec2 iResolution;
 
+            // Função de rotação
             mat2 rot(float a) {
                 float s = sin(a), c = cos(a);
                 return mat2(c, -s, s, c);
             }
 
-            // Função do Fractal (Mais complexa agora)
+            // Função de Ruído Pseudo-Aleatório (Pesada se chamada muitas vezes)
+            float hash(vec3 p) {
+                p = fract(p * 0.3183099 + .1);
+                p *= 17.0;
+                return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+            }
+
+            // O Mapa do Mundo (Túnel)
             float map(vec3 p) {
                 vec3 q = p;
-                // Repetição espacial para encher a tela
-                p.xy = mod(p.xy, 4.0) - 2.0;
-                p.z = mod(p.z, 8.0) - 4.0;
-
-                p.xy *= rot(iTime * 0.2 + p.z * 0.1);
-
-                float d = 1e5;
-                float s = 1.0;
-                // AUMENTEI DE 6 PARA 10 ITERAÇÕES (Multiplica o peso do cálculo)
-                for(int i = 0; i < 10; i++) {
-                    p = abs(p) - vec3(0.4, 0.3, 0.2 + sin(iTime*0.1)*0.1);
-                    float r = dot(p, p);
-                    // Adicionei mais complexidade na deformação
-                    float k = 1.8 / min(r, 1.5); 
-                    p *= k;
-                    s *= k;
-                    d = min(d, length(p.xz) / s);
-                }
-                return d - 0.01;
+                q.xy *= rot(p.z * 0.1); // Torce o túnel
+                // Cria um túnel infinito usando repetição
+                float tunnel = length(q.xy) - 3.0; 
+                
+                // Adiciona rugosidade nas paredes (Ruído)
+                // Usar sin/cos aqui obriga a GPU a fazer trigonometria para cada passo
+                float noise = sin(p.z*2.0)*cos(p.x*2.0) + sin(p.y)*0.5;
+                
+                return min(tunnel + noise, p.y + 2.0); // Chão + Túnel
             }
 
             void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
                 vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;
+                
+                // Câmera voando rápido
+                vec3 ro = vec3(0.0, 0.0, iTime * 4.0);
+                vec3 rd = normalize(vec3(uv, 1.0));
+                
+                // Gira a câmera um pouco
+                rd.xy *= rot(iTime * 0.2);
 
-                // Câmera corrigida, avançando no túnel
-                vec3 ro = vec3(0.0, 0.0, iTime * 2.0); 
-                vec3 rd = normalize(vec3(uv, 1.5)); // FOV menor para focar
-
-                float t = 0.0;
-                float d = 0.0;
-                int i;
-                // AUMENTEI DE 80 PARA 200 PASSOS POR PIXEL (O dobro do peso)
-                for(i = 0; i < 200; i++) {
-                    d = map(ro + rd * t);
-                    if(d < 0.001 || t > 50.0) break;
-                    t += d * 0.7; // Passos menores para mais qualidade e peso
-                }
-
-                // Cor baseada na distância (t) e iterações (i)
                 vec3 col = vec3(0.0);
-                if(t < 50.0) {
-                    // Cor do objeto fractal
-                    float glow = float(i) / 200.0;
-                    col = vec3(1.0, 0.5, 0.1) * glow * glow * 5.0;
-                    col += vec3(0.1, 0.3, 1.0) * (1.0/t);
-                } else {
-                    // Cor de fundo (para não ficar tudo branco se errar)
-                    col = vec3(0.02, 0.02, 0.05) * (uv.y + 0.5);
+                float t = 0.0;
+                
+                // --- O PESADELO DA GPU: VOLUMETRIA ---
+                // Em vez de procurar uma superfície, vamos somar "luz" ao longo do caminho.
+                // 150 Passos fixos. A GPU NÃO PODE otimizar isso. Ela tem que rodar os 150.
+                for(int i = 0; i < 150; i++) {
+                    vec3 p = ro + rd * t;
+                    float d = map(p); // Distância para a parede
+                    
+                    // Truque para criar "brilho" volumétrico
+                    // Se passarmos PERTO da parede (d < 1.0), adicionamos cor.
+                    float density = 0.1 / (abs(d) + 0.01); // Quanto mais perto, mais forte
+                    
+                    // Cor baseada na posição (psicodélico)
+                    vec3 sphereCol = 0.5 + 0.5*cos(iTime + p.z*0.1 + vec3(0,2,4));
+                    
+                    col += sphereCol * density * 0.02; // Acumula a cor
+                    
+                    // Avança um pouco. Se avançar muito rápido (t += d), perde a neblina.
+                    // Avançar fixo (0.15) força muitos cálculos.
+                    t += max(d * 0.3, 0.15); 
+                    
+                    if(t > 40.0) break; // Longe demais
                 }
 
-                // Fumaça/Fog para dar volume
-                col = mix(col, vec3(0.0,0.0,0.1), 1.0 - exp(-0.05*t*t));
-
+                // Ajuste de contraste final
+                col = pow(col, vec3(1.2));
+                
                 fragColor = vec4(col, 1.0);
             }
 
@@ -125,6 +139,7 @@
         `;
 
         function init() {
+            // Setup básico do Three.js para renderizar um quadrado na tela toda
             camera = new THREE.OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
             scene = new THREE.Scene();
             const geometry = new THREE.PlaneGeometry( 2, 2 );
@@ -132,64 +147,79 @@
             material = new THREE.ShaderMaterial( {
                 uniforms: {
                     iTime: { value: 0 },
-                    iResolution: { value: new THREE.Vector2() }
+                    iResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
                 },
                 vertexShader: vertexShader,
-                fragmentShader: fragmentShader
+                fragmentShader: fragmentShader,
+                depthWrite: false,
+                depthTest: false
             } );
 
-            scene.add( new THREE.Mesh( geometry, material ) );
+            mesh = new THREE.Mesh( geometry, material );
+            scene.add( mesh );
 
-            // Renderizador com contexto WebGL2 se disponível para mais poder de travamento
-            try {
-                renderer = new THREE.WebGLRenderer({ context: document.createElement('canvas').getContext('webgl2') });
-            } catch(e) {
-                renderer = new THREE.WebGLRenderer();
-            }
-            
+            // Cria o renderizador
+            renderer = new THREE.WebGLRenderer({ 
+                antialias: false, 
+                powerPreference: "high-performance",
+                precision: "highp"
+            });
+            renderer.setSize( window.innerWidth, window.innerHeight );
             document.body.appendChild( renderer.domElement );
-            
-            // Valor inicial do slider
-            let initialRes = parseFloat(document.getElementById('pixel-ratio').value);
-            renderer.setPixelRatio(initialRes);
-            updateResolutionUniform(initialRes);
 
+            // Listeners
             window.addEventListener( 'resize', onWindowResize );
-
-            document.getElementById('pixel-ratio').addEventListener('input', function(e) {
+            
+            // Slider Logic
+            const slider = document.getElementById('res-slider');
+            const resText = document.getElementById('res-text');
+            
+            slider.addEventListener('input', (e) => {
                 let val = parseFloat(e.target.value);
                 renderer.setPixelRatio(val);
-                document.getElementById('res-val').innerText = val.toFixed(1) + "x " + (val >= 2.5 ? "(NUCLEAR)" : "(Pesado)");
-                updateResolutionUniform(val);
+                
+                // Atualiza o Uniform também para o shader saber o tamanho novo
+                material.uniforms.iResolution.value.set(
+                    window.innerWidth * val,
+                    window.innerHeight * val
+                );
+                
+                let status = "(Leve)";
+                if(val > 1.5) status = "(Pesado)";
+                if(val > 2.5) status = "(INSANO)";
+                
+                resText.innerText = val.toFixed(1) + "x " + status;
             });
-            
+
             animate();
         }
 
-        function updateResolutionUniform(pixelRatio) {
-            renderer.setSize( window.innerWidth, window.innerHeight );
-            material.uniforms.iResolution.value.set( 
-                window.innerWidth * pixelRatio, 
-                window.innerHeight * pixelRatio 
-            );
-        }
-
         function onWindowResize() {
-            updateResolutionUniform(renderer.getPixelRatio());
+            const val = parseFloat(document.getElementById('res-slider').value);
+            renderer.setSize( window.innerWidth, window.innerHeight );
+            material.uniforms.iResolution.value.set(
+                window.innerWidth * val,
+                window.innerHeight * val
+            );
         }
 
         function animate() {
             requestAnimationFrame( animate );
-            material.uniforms.iTime.value = (Date.now() - startTime) * 0.001;
-            renderer.render( scene, camera );
-            updateFPS();
-        }
 
-        function updateFPS() {
+            // Atualiza o tempo
+            material.uniforms.iTime.value = (Date.now() - startTime) * 0.001;
+
+            renderer.render( scene, camera );
+
+            // Contador FPS
             const now = performance.now();
             frameCount++;
             if (now - lastTime >= 1000) {
                 fpsElem.innerText = frameCount;
+                if(frameCount < 15) fpsElem.style.color = "red";
+                else if(frameCount < 30) fpsElem.style.color = "orange";
+                else fpsElem.style.color = "#0f0";
+                
                 frameCount = 0;
                 lastTime = now;
             }
