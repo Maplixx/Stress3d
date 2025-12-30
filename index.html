@@ -3,91 +3,156 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Stress Test 3D - S9 Snapdragon</title>
+    <title>3D Stress Test - Mobile</title>
     <style>
-        body {
-            margin: 0;
-            overflow: hidden; /* Remove barras de rolagem */
-            background-color: #000;
-        }
-        /* Estilo para o contador de FPS ficar no canto */
-        #stats-container {
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        
+        /* Painel de Controle Flutuante */
+        #controls {
             position: absolute;
-            top: 0px;
-            left: 0px;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 400px;
+            background: rgba(20, 20, 20, 0.8);
+            padding: 15px;
+            border-radius: 12px;
+            color: white;
             z-index: 100;
+            backdrop-filter: blur(5px);
+            border: 1px solid #333;
         }
+
+        /* Loading Overlay */
+        #loader {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00ff88;
+            font-size: 24px;
+            font-weight: bold;
+            pointer-events: none;
+            transition: opacity 0.5s;
+        }
+
+        input[type=range] { width: 100%; margin: 10px 0; }
+        .info-text { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px; }
+        .danger { color: #ff4444; font-weight: bold; font-size: 12px; margin-top: 5px; text-align: center;}
     </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
 </head>
 <body>
-    <div id="stats-container"></div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r17/Stats.min.js"></script>
+    <div id="loader">Carregando Engine...</div>
 
-    <script>
-        // --- CONFIGURAÇÃO INICIAL ---
-        let camera, scene, renderer, mesh, stats;
+    <div id="controls">
+        <div class="info-text">
+            <span>Nível de Detalhe: <b id="seg-display">20</b></span>
+            <span style="color:#00ff88">FPS: <span id="fps-counter">60</span></span>
+        </div>
+        <input type="range" id="stress-slider" min="10" max="100" value="20" step="5">
+        <div class="danger">Cuidado: Acima de 60 pode travar o celular!</div>
+        <div style="text-align:center; margin-top:10px; font-size:12px; color:#888;">
+            Vértices Atuais: <span id="vert-count">Calculando...</span>
+        </div>
+    </div>
 
-        init();
-        animate();
+    <script type="module">
+        import * as THREE from 'three';
+        import Stats from 'three/addons/libs/stats.module.js';
 
+        let camera, scene, renderer, mesh;
+        let lastTime = performance.now();
+        let frameCount = 0;
+        const fpsDisplay = document.getElementById('fps-counter');
+        const loader = document.getElementById('loader');
+
+        // Configuração Inicial
         function init() {
-            // 1. Criar a Cena (o mundo 3D)
+            // 1. Cena
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111111); // Fundo quase preto
+            scene.background = new THREE.Color(0x050505);
 
-            // 2. Criar a Câmera (nossos olhos)
-            // FOV de 75, aspecto da tela, vê de 0.1 até 1000 metros de distância
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 8; // Move a câmera para trás para ver o cubo
+            // 2. Câmera
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 7;
 
-            // 3. O MOTOR DO STRESS: A Geometria
-            // BoxGeometry(tamanho X, Y, Z, segmentos X, Y, Z)
-            // Quanto maiores os últimos 3 números, mais pesado fica.
-            // 60x60x60 segmentos é BEM pesado para celular.
-            const segmentos = 60; 
-            const geometry = new THREE.BoxGeometry(5, 5, 5, segmentos, segmentos, segmentos);
+            // 3. Renderizador
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limita a 2x para não explodir telas 4k
+            document.body.appendChild(renderer.domElement);
 
-            // --- A MÁGICA DAS CORES ALEATÓRIAS POR VÉRTICE ---
-            // Pegamos a contagem total de vértices criados
-            const count = geometry.attributes.position.count;
-            // Criamos um array para guardar as cores (R, G, B para cada vértice)
-            const colors = [];
+            // 4. Criar o objeto inicial (Começa leve com 20 segmentos)
+            createSuperCube(20);
+
+            // 5. Luzes (Opcional, mas ajuda na profundidade)
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(5, 5, 5);
+            scene.add(dirLight);
+
+            // Some com o texto de carregando
+            loader.style.opacity = '0';
+
+            // Eventos
+            window.addEventListener('resize', onWindowResize);
             
-            for (let i = 0; i < count; i++) {
-                // Gera R, G, B aleatórios entre 0 e 1 e adiciona ao array
-                colors.push(Math.random(), Math.random(), Math.random());
+            // Slider de Controle
+            document.getElementById('stress-slider').addEventListener('input', (e) => {
+                const val = parseInt(e.target.value);
+                document.getElementById('seg-display').innerText = val;
+                createSuperCube(val);
+            });
+            
+            animate();
+        }
+
+        // Função que cria o Cubo Colorido
+        function createSuperCube(segments) {
+            // Remove o antigo se existir
+            if(mesh) {
+                scene.remove(mesh);
+                mesh.geometry.dispose();
+                mesh.material.dispose();
             }
 
-            // Adiciona esse array de cores como um atributo da geometria
+            // Geometria nova
+            const geometry = new THREE.BoxGeometry(4, 4, 4, segments, segments, segments);
+            
+            // CORES POR VÉRTICE (O peso real)
+            const count = geometry.attributes.position.count;
+            const colors = [];
+            const color = new THREE.Color();
+
+            for (let i = 0; i < count; i++) {
+                // Cores baseadas na posição para ficar bonito e aleatório
+                color.setHSL(Math.random(), 1.0, 0.5);
+                colors.push(color.r, color.g, color.b);
+            }
             geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-            // 4. O Material
-            // Usamos MeshBasicMaterial e ativamos 'vertexColors: true'.
-            // Isso diz para ele ignorar luzes e usar as cores cruas que definimos acima.
-            // Se quiser ver os triângulos, mude wireframe para 'true'.
+            // Material que usa as cores dos vértices
             const material = new THREE.MeshBasicMaterial({ 
-                vertexColors: true, 
+                vertexColors: true,
                 wireframe: false 
             });
 
-            // 5. O Objeto Final (Mesh) = Geometria + Material
             mesh = new THREE.Mesh(geometry, material);
             scene.add(mesh);
 
-            // 6. O Renderizador (O que desenha na tela)
-            renderer = new THREE.WebGLRenderer({ antialias: true }); // Antialias tenta suavizar as bordas
-            renderer.setPixelRatio(window.devicePixelRatio); // Usa a resolução nativa do S9
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.body.appendChild(renderer.domElement);
-
-            // 7. Configurar o contador de FPS
-            stats = new Stats();
-            document.getElementById('stats-container').appendChild(stats.dom);
-
-            // Se a tela girar, ajusta o tamanho
-            window.addEventListener('resize', onWindowResize);
+            // Atualiza contagem na tela
+            document.getElementById('vert-count').innerText = count.toLocaleString() + " pontos";
         }
 
         function onWindowResize() {
@@ -96,22 +161,30 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // --- LOOP DE ANIMAÇÃO (Roda todo frame) ---
+        // Loop de Animação
         function animate() {
-            // Chama essa mesma função no próximo frame possível
             requestAnimationFrame(animate);
 
-            // Gira o cubo um pouquinho em cada eixo
-            mesh.rotation.x += 0.005;
-            mesh.rotation.y += 0.01;
-            mesh.rotation.z += 0.002;
+            // Gira o cubo
+            if(mesh) {
+                mesh.rotation.x += 0.005;
+                mesh.rotation.y += 0.01;
+            }
 
-            // Desenha a cena
             renderer.render(scene, camera);
-            
-            // Atualiza o contador de FPS
-            stats.update();
+
+            // Contador de FPS manual (mais leve que libs externas)
+            const now = performance.now();
+            frameCount++;
+            if (now - lastTime >= 1000) {
+                fpsDisplay.innerText = frameCount;
+                frameCount = 0;
+                lastTime = now;
+            }
         }
+
+        // Iniciar tudo
+        init();
     </script>
 </body>
 </html>
