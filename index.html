@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Stress Test 3D - S9 Snapdragon</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /* Remove barras de rolagem */
+            background-color: #000;
+        }
+        /* Estilo para o contador de FPS ficar no canto */
+        #stats-container {
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="stats-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/r17/Stats.min.js"></script>
+
+    <script>
+        // --- CONFIGURAÇÃO INICIAL ---
+        let camera, scene, renderer, mesh, stats;
+
+        init();
+        animate();
+
+        function init() {
+            // 1. Criar a Cena (o mundo 3D)
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111111); // Fundo quase preto
+
+            // 2. Criar a Câmera (nossos olhos)
+            // FOV de 75, aspecto da tela, vê de 0.1 até 1000 metros de distância
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 8; // Move a câmera para trás para ver o cubo
+
+            // 3. O MOTOR DO STRESS: A Geometria
+            // BoxGeometry(tamanho X, Y, Z, segmentos X, Y, Z)
+            // Quanto maiores os últimos 3 números, mais pesado fica.
+            // 60x60x60 segmentos é BEM pesado para celular.
+            const segmentos = 60; 
+            const geometry = new THREE.BoxGeometry(5, 5, 5, segmentos, segmentos, segmentos);
+
+            // --- A MÁGICA DAS CORES ALEATÓRIAS POR VÉRTICE ---
+            // Pegamos a contagem total de vértices criados
+            const count = geometry.attributes.position.count;
+            // Criamos um array para guardar as cores (R, G, B para cada vértice)
+            const colors = [];
+            
+            for (let i = 0; i < count; i++) {
+                // Gera R, G, B aleatórios entre 0 e 1 e adiciona ao array
+                colors.push(Math.random(), Math.random(), Math.random());
+            }
+
+            // Adiciona esse array de cores como um atributo da geometria
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+            // 4. O Material
+            // Usamos MeshBasicMaterial e ativamos 'vertexColors: true'.
+            // Isso diz para ele ignorar luzes e usar as cores cruas que definimos acima.
+            // Se quiser ver os triângulos, mude wireframe para 'true'.
+            const material = new THREE.MeshBasicMaterial({ 
+                vertexColors: true, 
+                wireframe: false 
+            });
+
+            // 5. O Objeto Final (Mesh) = Geometria + Material
+            mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+
+            // 6. O Renderizador (O que desenha na tela)
+            renderer = new THREE.WebGLRenderer({ antialias: true }); // Antialias tenta suavizar as bordas
+            renderer.setPixelRatio(window.devicePixelRatio); // Usa a resolução nativa do S9
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // 7. Configurar o contador de FPS
+            stats = new Stats();
+            document.getElementById('stats-container').appendChild(stats.dom);
+
+            // Se a tela girar, ajusta o tamanho
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- LOOP DE ANIMAÇÃO (Roda todo frame) ---
+        function animate() {
+            // Chama essa mesma função no próximo frame possível
+            requestAnimationFrame(animate);
+
+            // Gira o cubo um pouquinho em cada eixo
+            mesh.rotation.x += 0.005;
+            mesh.rotation.y += 0.01;
+            mesh.rotation.z += 0.002;
+
+            // Desenha a cena
+            renderer.render(scene, camera);
+            
+            // Atualiza o contador de FPS
+            stats.update();
+        }
+    </script>
+</body>
+</html>
