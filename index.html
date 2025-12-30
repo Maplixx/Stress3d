@@ -3,114 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>S9 Raymarching Killer</title>
+    <title>Moto G85 Killer - Nuclear Shader</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; color: #fff; font-family: monospace; }
         #info {
             position: absolute; top: 10px; left: 10px;
-            background: rgba(0,0,0,0.8); padding: 10px;
-            border: 1px solid red; pointer-events: none;
+            background: rgba(50,0,0,0.8); padding: 10px;
+            border: 2px solid red; pointer-events: none;
         }
-        #fps { font-size: 24px; color: #0f0; font-weight: bold; }
+        #fps { font-size: 24px; color: red; font-weight: bold; }
         #res-control {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-            width: 80%; text-align: center;
-            background: rgba(0,0,0,0.8); padding: 10px; border-radius: 8px;
+            width: 85%; text-align: center;
+            background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px;
+            border: 1px solid red;
         }
-        input[type=range] { width: 100%; accent-color: red; }
+        input[type=range] { width: 100%; accent-color: red; margin: 10px 0; }
     </style>
 </head>
 <body>
     <div id="info">
-        FPS: <span id="fps">0</span><br>
-        <span style="font-size:12px; color:#aaa">Shader: Raymarching Fractal</span>
+        FPS: <span id="fps">Calculando...</span><br>
+        <span style="font-size:12px; color:#faa">Shader: Raymarching Nuclear</span>
     </div>
 
     <div id="res-control">
-        <label>Resolução de Renderização (Peso)</label>
-        <input type="range" id="pixel-ratio" min="0.5" max="3.0" step="0.1" value="1.5">
-        <div id="res-val" style="color:red; font-weight:bold;">1.5x (Pesado)</div>
-        <div style="font-size:10px; color:#ccc; margin-top:5px;">Arraste para a direita para 3.0x se quiser travar tudo.</div>
+        <label style="color:red; font-weight:bold;">Nível de Destruição (Resolução)</label>
+        <input type="range" id="pixel-ratio" min="1.0" max="3.0" step="0.1" value="1.5">
+        <div id="res-val" style="color:red; font-weight:bold; font-size:1.2em;">1.5x (Pesado)</div>
+        <div style="font-size:11px; color:#ccc; margin-top:5px;">Coloque em 3.0x para testar o Moto G85.</div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <script>
-        // --- CONFIGURAÇÃO ---
         let camera, scene, renderer, material;
         let startTime = Date.now();
         const fpsElem = document.getElementById('fps');
         let frameCount = 0;
         let lastTime = performance.now();
 
-        // O SHADER (A Mágica do Mal)
-        // Isso aqui roda na GPU para CADA PIXEL da tela.
-        // É um fractal Mandelbulb misturado com repetição espacial.
+        // --- O SHADER CORRIGIDO E MAIS PESADO ---
         const fragmentShader = `
+            precision highp float; // Força alta precisão (mais pesado)
             uniform float iTime;
             uniform vec2 iResolution;
 
-            // Função de rotação
             mat2 rot(float a) {
                 float s = sin(a), c = cos(a);
                 return mat2(c, -s, s, c);
             }
 
-            // Função de Distância (SDF) - O Fractal
+            // Função do Fractal (Mais complexa agora)
             float map(vec3 p) {
                 vec3 q = p;
-                
-                // Repetição infinita no espaço (Deixa pesado pois tem "coisa" em todo lugar)
-                vec3 rep = vec3(4.0);
-                p = mod(p + rep*0.5, rep) - rep*0.5;
+                // Repetição espacial para encher a tela
+                p.xy = mod(p.xy, 4.0) - 2.0;
+                p.z = mod(p.z, 8.0) - 4.0;
 
-                // Deformação baseada no tempo
-                p.xy *= rot(iTime * 0.5);
-                p.yz *= rot(iTime * 0.3);
+                p.xy *= rot(iTime * 0.2 + p.z * 0.1);
 
-                // Forma Fractal simples (Iterações pesam)
-                float d = 1000.0;
+                float d = 1e5;
                 float s = 1.0;
-                for(int i = 0; i < 6; i++) { // Aumentar esse loop mata a GPU
-                    p = abs(p) - vec3(0.5, 0.4, 0.3); // Dobra o espaço
+                // AUMENTEI DE 6 PARA 10 ITERAÇÕES (Multiplica o peso do cálculo)
+                for(int i = 0; i < 10; i++) {
+                    p = abs(p) - vec3(0.4, 0.3, 0.2 + sin(iTime*0.1)*0.1);
                     float r = dot(p, p);
-                    if (r < 2.0) p = p * (1.5 / r); // Scale
-                    s *= 1.3;
-                    d = min(d, length(p) / s); // Salva a menor distância
+                    // Adicionei mais complexidade na deformação
+                    float k = 1.8 / min(r, 1.5); 
+                    p *= k;
+                    s *= k;
+                    d = min(d, length(p.xz) / s);
                 }
-                
-                // Retorna uma esfera distorcida pelo fractal
-                return length(p) - 0.15;
+                return d - 0.01;
             }
 
-            // Raymarching: Lança um raio para cada pixel e anda até bater em algo
             void mainImage( out vec4 fragColor, in vec2 fragCoord ) {
                 vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;
 
-                vec3 ro = vec3(0.0, 0.0, -3.0 + iTime * 2.0); // Câmera andando
-                vec3 rd = normalize(vec3(uv, 1.0)); // Direção do raio
+                // Câmera corrigida, avançando no túnel
+                vec3 ro = vec3(0.0, 0.0, iTime * 2.0); 
+                vec3 rd = normalize(vec3(uv, 1.5)); // FOV menor para focar
 
                 float t = 0.0;
                 float d = 0.0;
-                vec3 p;
-                
-                // Loop principal do Raymarching
-                // Quanto mais iterações, mais longe ele vê e mais PESADO fica.
-                // 80 passos por pixel é muito para mobile em full screen.
                 int i;
-                for(i = 0; i < 80; i++) {
-                    p = ro + rd * t;
-                    d = map(p); // Calcula a distância para o fractal
-                    if(d < 0.001 || t > 100.0) break; // Bateu ou foi muito longe
-                    t += d;
+                // AUMENTEI DE 80 PARA 200 PASSOS POR PIXEL (O dobro do peso)
+                for(i = 0; i < 200; i++) {
+                    d = map(ro + rd * t);
+                    if(d < 0.001 || t > 50.0) break;
+                    t += d * 0.7; // Passos menores para mais qualidade e peso
                 }
 
-                // Cor baseada nas iterações (Glow)
-                vec3 col = vec3(float(i) / 80.0);
-                col = pow(col, vec3(2.0)) * vec3(1.0, 0.5, 0.2); // Cor de fogo
-                
-                // Adiciona um pouco de fog
-                col += vec3(0.1, 0.2, 0.4) * (t * 0.05);
+                // Cor baseada na distância (t) e iterações (i)
+                vec3 col = vec3(0.0);
+                if(t < 50.0) {
+                    // Cor do objeto fractal
+                    float glow = float(i) / 200.0;
+                    col = vec3(1.0, 0.5, 0.1) * glow * glow * 5.0;
+                    col += vec3(0.1, 0.3, 1.0) * (1.0/t);
+                } else {
+                    // Cor de fundo (para não ficar tudo branco se errar)
+                    col = vec3(0.02, 0.02, 0.05) * (uv.y + 0.5);
+                }
+
+                // Fumaça/Fog para dar volume
+                col = mix(col, vec3(0.0,0.0,0.1), 1.0 - exp(-0.05*t*t));
 
                 fragColor = vec4(col, 1.0);
             }
@@ -127,78 +125,71 @@
         `;
 
         function init() {
-            const container = document.body;
-
-            // Câmera ortográfica (2D) pois só queremos desenhar um quadrado na tela toda
             camera = new THREE.OrthographicCamera( - 1, 1, 1, - 1, 0, 1 );
             scene = new THREE.Scene();
-
-            // Geometria que cobre a tela inteira
             const geometry = new THREE.PlaneGeometry( 2, 2 );
 
-            // Passando o tempo e a resolução para o shader
-            const uniforms = {
-                iTime: { value: 0 },
-                iResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
-            };
-
             material = new THREE.ShaderMaterial( {
-                uniforms: uniforms,
+                uniforms: {
+                    iTime: { value: 0 },
+                    iResolution: { value: new THREE.Vector2() }
+                },
                 vertexShader: vertexShader,
                 fragmentShader: fragmentShader
             } );
 
-            const mesh = new THREE.Mesh( geometry, material );
-            scene.add( mesh );
+            scene.add( new THREE.Mesh( geometry, material ) );
 
-            renderer = new THREE.WebGLRenderer();
-            renderer.setPixelRatio( 1.5 ); // Começa pesado (1.5x a resolução da tela)
-            container.appendChild( renderer.domElement );
+            // Renderizador com contexto WebGL2 se disponível para mais poder de travamento
+            try {
+                renderer = new THREE.WebGLRenderer({ context: document.createElement('canvas').getContext('webgl2') });
+            } catch(e) {
+                renderer = new THREE.WebGLRenderer();
+            }
+            
+            document.body.appendChild( renderer.domElement );
+            
+            // Valor inicial do slider
+            let initialRes = parseFloat(document.getElementById('pixel-ratio').value);
+            renderer.setPixelRatio(initialRes);
+            updateResolutionUniform(initialRes);
 
-            onWindowResize();
             window.addEventListener( 'resize', onWindowResize );
 
-            // Controle do Slider
             document.getElementById('pixel-ratio').addEventListener('input', function(e) {
                 let val = parseFloat(e.target.value);
                 renderer.setPixelRatio(val);
-                document.getElementById('res-val').innerText = val + "x " + (val > 2.0 ? "(INSANO)" : "(Pesado)");
-                
-                // Atualiza o tamanho para aplicar o novo pixel ratio
-                renderer.setSize( window.innerWidth, window.innerHeight );
-                material.uniforms.iResolution.value.set(
-                    window.innerWidth * val, 
-                    window.innerHeight * val
-                );
+                document.getElementById('res-val').innerText = val.toFixed(1) + "x " + (val >= 2.5 ? "(NUCLEAR)" : "(Pesado)");
+                updateResolutionUniform(val);
             });
             
             animate();
         }
 
-        function onWindowResize() {
-            const val = parseFloat(document.getElementById('pixel-ratio').value);
+        function updateResolutionUniform(pixelRatio) {
             renderer.setSize( window.innerWidth, window.innerHeight );
-            // Atualiza a resolução enviada para o shader
             material.uniforms.iResolution.value.set( 
-                window.innerWidth * val, 
-                window.innerHeight * val 
+                window.innerWidth * pixelRatio, 
+                window.innerHeight * pixelRatio 
             );
+        }
+
+        function onWindowResize() {
+            updateResolutionUniform(renderer.getPixelRatio());
         }
 
         function animate() {
             requestAnimationFrame( animate );
-
-            // Atualiza o tempo do shader
             material.uniforms.iTime.value = (Date.now() - startTime) * 0.001;
-
             renderer.render( scene, camera );
+            updateFPS();
+        }
 
-            // Contador FPS
+        function updateFPS() {
             const now = performance.now();
             frameCount++;
             if (now - lastTime >= 1000) {
                 fpsElem.innerText = frameCount;
-                fpsElem.style.color = frameCount < 20 ? 'red' : (frameCount < 50 ? 'orange' : '#0f0');
                 frameCount = 0;
                 lastTime = now;
             }
