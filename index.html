@@ -3,156 +3,146 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>3D Stress Test - Mobile</title>
+    <title>S9 Nightmare Stress Test</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: monospace; }
         
-        /* Painel de Controle Flutuante */
         #controls {
             position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 90%;
-            max-width: 400px;
-            background: rgba(20, 20, 20, 0.8);
-            padding: 15px;
-            border-radius: 12px;
-            color: white;
-            z-index: 100;
-            backdrop-filter: blur(5px);
-            border: 1px solid #333;
+            bottom: 10px; left: 2%; width: 96%;
+            background: rgba(40, 0, 0, 0.9); /* Vermelho de alerta */
+            padding: 15px; border-radius: 8px; color: #ff5555;
+            border: 2px solid red;
+            box-sizing: border-box;
         }
-
-        /* Loading Overlay */
-        #loader {
-            position: absolute;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            color: #00ff88;
-            font-size: 24px;
+        #stats-box {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0,0,0,0.7); padding: 5px 10px;
+            color: #00ff00; font-size: 20px; border-radius: 4px;
             font-weight: bold;
-            pointer-events: none;
-            transition: opacity 0.5s;
         }
 
-        input[type=range] { width: 100%; margin: 10px 0; }
-        .info-text { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 5px; }
-        .danger { color: #ff4444; font-weight: bold; font-size: 12px; margin-top: 5px; text-align: center;}
+        input[type=range] { width: 100%; margin: 15px 0; accent-color: red; }
+        .info-text { display: flex; justify-content: space-between; font-size: 16px; margin-bottom: 5px; color: white;}
+        .warning { text-align: center; font-size: 12px; color: orange; margin-top: 5px;}
     </style>
 
     <script type="importmap">
     {
         "imports": {
-            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
         }
     }
     </script>
 </head>
 <body>
 
-    <div id="loader">Carregando Engine...</div>
+    <div id="stats-box">FPS: <span id="fps-counter">Let's Go</span></div>
 
     <div id="controls">
         <div class="info-text">
-            <span>Nível de Detalhe: <b id="seg-display">20</b></span>
-            <span style="color:#00ff88">FPS: <span id="fps-counter">60</span></span>
+            <span>Nível de Pesadelo (Segs): <b id="seg-display" style="color:red; font-size:1.2em;">50</b></span>
         </div>
-        <input type="range" id="stress-slider" min="10" max="100" value="20" step="5">
-        <div class="danger">Cuidado: Acima de 60 pode travar o celular!</div>
-        <div style="text-align:center; margin-top:10px; font-size:12px; color:#888;">
-            Vértices Atuais: <span id="vert-count">Calculando...</span>
+        <input type="range" id="stress-slider" min="50" max="250" value="50" step="10">
+        <div style="text-align:center; margin-top:5px; font-size:14px; color:#fff;">
+            Vértices Totais: <span id="vert-count" style="color:cyan">Calculando...</span>
         </div>
+        <div class="warning">⚠️ ACIMA DE 150 PODE TRAVAR SEU NAVEGADOR ⚠️</div>
     </div>
 
     <script type="module">
         import * as THREE from 'three';
-        import Stats from 'three/addons/libs/stats.module.js';
 
         let camera, scene, renderer, mesh;
+        let positionsOriginal; // Para guardar as posições originais dos vértices
         let lastTime = performance.now();
         let frameCount = 0;
         const fpsDisplay = document.getElementById('fps-counter');
-        const loader = document.getElementById('loader');
+        let clock = new THREE.Clock(); // Para animação de onda
 
-        // Configuração Inicial
         function init() {
-            // 1. Cena
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x050505);
+            scene.background = new THREE.Color(0x110000); // Fundo vermelho escuro
+            scene.fog = new THREE.FogExp2(0x110000, 0.05); // Neblina para pesar mais
 
-            // 2. Câmera
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 7;
+            camera.position.z = 9;
 
-            // 3. Renderizador
-            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            // Renderizador forçando alta performance
+            renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance", precision: "highp" });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limita a 2x para não explodir telas 4k
+            renderer.setPixelRatio(window.devicePixelRatio); 
             document.body.appendChild(renderer.domElement);
 
-            // 4. Criar o objeto inicial (Começa leve com 20 segmentos)
-            createSuperCube(20);
-
-            // 5. Luzes (Opcional, mas ajuda na profundidade)
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            // LUZES (O material novo precisa delas para pesar)
+            const ambientLight = new THREE.AmbientLight(0x444444);
             scene.add(ambientLight);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-            dirLight.position.set(5, 5, 5);
-            scene.add(dirLight);
+            
+            const light1 = new THREE.PointLight(0xffffff, 2, 50);
+            light1.position.set(10, 10, 10);
+            scene.add(light1);
+            
+            const light2 = new THREE.PointLight(0xff0000, 3, 50); // Luz vermelha intensa
+            light2.position.set(-10, -5, 5);
+            scene.add(light2);
 
-            // Some com o texto de carregando
-            loader.style.opacity = '0';
+            // Cria o objeto inicial
+            createNightmareCube(50);
 
-            // Eventos
             window.addEventListener('resize', onWindowResize);
             
-            // Slider de Controle
-            document.getElementById('stress-slider').addEventListener('input', (e) => {
+            // Slider
+            document.getElementById('stress-slider').addEventListener('change', (e) => {
+                // Usamos 'change' em vez de 'input' para só recriar quando soltar o dedo, evita travar enquanto arrasta
                 const val = parseInt(e.target.value);
                 document.getElementById('seg-display').innerText = val;
-                createSuperCube(val);
+                createNightmareCube(val);
             });
             
             animate();
         }
 
-        // Função que cria o Cubo Colorido
-        function createSuperCube(segments) {
-            // Remove o antigo se existir
+        function createNightmareCube(segments) {
             if(mesh) {
                 scene.remove(mesh);
                 mesh.geometry.dispose();
                 mesh.material.dispose();
             }
 
-            // Geometria nova
-            const geometry = new THREE.BoxGeometry(4, 4, 4, segments, segments, segments);
-            
-            // CORES POR VÉRTICE (O peso real)
-            const count = geometry.attributes.position.count;
-            const colors = [];
-            const color = new THREE.Color();
+            document.getElementById('vert-count').innerText = "Gerando geometria gigante... Aguarde.";
 
-            for (let i = 0; i < count; i++) {
-                // Cores baseadas na posição para ficar bonito e aleatório
-                color.setHSL(Math.random(), 1.0, 0.5);
-                colors.push(color.r, color.g, color.b);
-            }
-            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            // Um pequeno timeout para a UI atualizar antes de travar gerando a geometria
+            setTimeout(() => {
+                const geometry = new THREE.BoxGeometry(5, 5, 5, segments, segments, segments);
+                
+                const count = geometry.attributes.position.count;
+                const colors = [];
+                const color = new THREE.Color();
 
-            // Material que usa as cores dos vértices
-            const material = new THREE.MeshBasicMaterial({ 
-                vertexColors: true,
-                wireframe: false 
-            });
+                for (let i = 0; i < count; i++) {
+                    // Cores mais vibrantes e caóticas
+                    color.setHSL(Math.random(), 1.0, Math.random() * 0.5 + 0.2);
+                    colors.push(color.r, color.g, color.b);
+                }
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                
+                // Clona as posições para a animação de onda
+                positionsOriginal = geometry.attributes.position.clone();
 
-            mesh = new THREE.Mesh(geometry, material);
-            scene.add(mesh);
+                // MATERIAL MAIS PESADO (Phong reage à luz)
+                // vertexColors: true faz ele ignorar a cor do material e usar a dos vértices, 
+                // mas ainda calcula a iluminação sobre elas.
+                const material = new THREE.MeshPhongMaterial({ 
+                    vertexColors: true,
+                    shininess: 100, // Brilho metálico para pesar o cálculo
+                    flatShading: true // Faz cada triângulo ser único, mais pesado que suave
+                });
 
-            // Atualiza contagem na tela
-            document.getElementById('vert-count').innerText = count.toLocaleString() + " pontos";
+                mesh = new THREE.Mesh(geometry, material);
+                scene.add(mesh);
+
+                document.getElementById('vert-count').innerText = (count / 1000000).toFixed(2) + " MILHÕES de vértices";
+            }, 100);
         }
 
         function onWindowResize() {
@@ -161,29 +151,48 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
-        // Loop de Animação
         function animate() {
             requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
 
-            // Gira o cubo
             if(mesh) {
-                mesh.rotation.x += 0.005;
-                mesh.rotation.y += 0.01;
+                mesh.rotation.x += 0.01;
+                mesh.rotation.y += 0.015;
+
+                // --- O GARGALO DA CPU ---
+                // Deforma a geometria a cada frame. Isso é extremamente pesado para a CPU
+                // pois ela tem que iterar sobre milhões de pontos em JS antes de mandar pra GPU.
+                const positions = mesh.geometry.attributes.position;
+                const initialPositions = positionsOriginal;
+                
+                for (let i = 0; i < positions.count; i++) {
+                    const x = initialPositions.getX(i);
+                    const y = initialPositions.getY(i);
+                    const z = initialPositions.getZ(i);
+
+                    // Cria uma onda maluca baseada na posição e no tempo
+                    const wave = Math.sin(x * 2 + time * 3) * Math.cos(y * 2 + time * 2) * 0.3;
+                    
+                    // Aplica a deformação apenas no eixo Z local
+                    positions.setZ(i, z + wave);
+                }
+                // Avisa a engine que os vértices mudaram e precisam serreenviados para a GPU
+                positions.needsUpdate = true;
             }
 
             renderer.render(scene, camera);
 
-            // Contador de FPS manual (mais leve que libs externas)
             const now = performance.now();
             frameCount++;
             if (now - lastTime >= 1000) {
                 fpsDisplay.innerText = frameCount;
+                // Muda a cor do FPS dependendo do sofrimento
+                fpsDisplay.style.color = frameCount < 15 ? 'red' : (frameCount < 30 ? 'orange' : '#00ff00');
                 frameCount = 0;
                 lastTime = now;
             }
         }
 
-        // Iniciar tudo
         init();
     </script>
 </body>
