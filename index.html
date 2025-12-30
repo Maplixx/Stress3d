@@ -13,17 +13,25 @@
             padding: 15px 20px; box-sizing: border-box;
             border-top: 2px solid #ff5500;
             backdrop-filter: blur(5px);
+            z-index: 10;
         }
         #stats-box {
             position: absolute; top: 10px; left: 10px;
             background: rgba(0,0,0,0.7); padding: 8px;
             color: #00ff00; font-size: 18px; border-radius: 4px; font-weight: bold;
             border: 1px solid #00ff00;
+            z-index: 10;
         }
         input[type=range] { width: 100%; margin: 15px 0; accent-color: #ff5500; }
         .info-text { display: flex; justify-content: space-between; margin-bottom: 5px; }
         .warning { text-align: center; font-size: 12px; color: #ff5500; margin-top: 8px;}
-        #loading { position: absolute; top:50%; left:50%; transform:translate(-50%, -50%); color: orange; display: none;}
+        #loading { 
+            position: absolute; top:50%; left:50%; transform:translate(-50%, -50%); 
+            color: orange; font-weight: bold; font-size: 1.2rem;
+            text-align: center;
+            z-index: 20;
+            display: none; /* Começa invisível, aparece quando muda o slider */
+        }
     </style>
 
     <script type="importmap">
@@ -37,17 +45,17 @@
 </head>
 <body>
     <div id="stats-box">FPS: <span id="fps-counter">...</span></div>
-    <div id="loading">Gerando Geometria Complexa...</div>
+    <div id="loading">Recalculando Universo...</div>
 
     <div id="controls-container">
         <div class="info-text">
-            <span>Subdivisão (Complexidade): <b id="seg-display" style="color:#ff5500;">3</b></span>
+            <span>Complexidade (Nível 1-8): <b id="seg-display" style="color:#ff5500;">3</b></span>
         </div>
         <input type="range" id="stress-slider" min="1" max="8" value="3" step="1">
         <div style="text-align:center; font-size:13px; color:#ccc;">
-            Triângulos Aprox: <span id="tri-count" style="color:cyan">Calculando...</span>
+            Triângulos: <span id="tri-count" style="color:cyan">Carregando...</span>
         </div>
-         <div class="warning">⚠️ Nível 7 ou 8 pode fechar o navegador por falta de RAM! Arraste e gire o planeta.</div>
+         <div class="warning">⚠️ CUIDADO: Nível 8 pode fechar o navegador!</div>
     </div>
 
     <script type="module">
@@ -58,70 +66,66 @@
         let lastTime = performance.now();
         let frameCount = 0;
         const fpsDisplay = document.getElementById('fps-counter');
-        const loading text = document.getElementById('loading');
-        const mainLight = new THREE.DirectionalLight(0xffffff, 3); // Luz do Sol forte
+        // AQUI ESTAVA O ERRO: removi o espaço no nome da variável
+        const loadingText = document.getElementById('loading'); 
+        const mainLight = new THREE.DirectionalLight(0xffffff, 3);
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x050505); // Espaço escuro
+            scene.background = new THREE.Color(0x050505);
 
             camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
-            // Câmera mais perto e mais alta para ver as sombras
             camera.position.set(0, 3, 5);
 
-            // RENDERIZADOR COM SOMBRAS ATIVADAS (O peso pesado)
             renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.shadowMap.enabled = true; // ATIVA AS SOMBRAS
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Sombras suaves (mais pesado)
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             document.body.appendChild(renderer.domElement);
 
-            // Controles para mexer (OrbitControls)
             controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true; // Movimento suave
+            controls.enableDamping = true;
             controls.dampingFactor = 0.05;
-            controls.autoRotate = true; // Começa girando devagar
-            controls.autoRotateSpeed = 0.5;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 2.0;
 
-            // --- ILUMINAÇÃO CARA ---
-            scene.add(new THREE.AmbientLight(0x222222)); // Luz ambiente fraca
+            scene.add(new THREE.AmbientLight(0x222222));
 
-            // A Luz que gera sombras
             mainLight.position.set(5, 5, 5);
-            mainLight.castShadow = true; // ESSA LUZ GERA SOMBRA
-            // Configuração da qualidade da sombra (quanto maior o mapSize, mais memória de vídeo usa)
+            mainLight.castShadow = true;
             mainLight.shadow.mapSize.width = 2048; 
             mainLight.shadow.mapSize.height = 2048;
             mainLight.shadow.camera.near = 0.5;
             mainLight.shadow.camera.far = 20;
             scene.add(mainLight);
             
-            // Adiciona um "chão" invisível só para receber a sombra do planeta
             const planeGeo = new THREE.PlaneGeometry(20, 20);
-            const planeMat = new THREE.ShadowMaterial({ opacity: 0.3 }); // Só mostra a sombra
+            const planeMat = new THREE.ShadowMaterial({ opacity: 0.3 });
             const plane = new THREE.Mesh(planeGeo, planeMat);
             plane.rotation.x = -Math.PI / 2;
             plane.position.y = -2.5;
             plane.receiveShadow = true;
             scene.add(plane);
 
-            // Cria o planeta inicial (nível 3)
             createPlanet(3);
 
             window.addEventListener('resize', onWindowResize);
             
-            // Evento do Slider
             const slider = document.getElementById('stress-slider');
             slider.addEventListener('change', (e) => {
                 const val = parseInt(e.target.value);
                 document.getElementById('seg-display').innerText = val;
-                // Mostra carregando e dá um tempinho pro navegador respirar
+                
                 loadingText.style.display = 'block';
-                setTimeout(() => {
-                     createPlanet(val);
-                     loadingText.style.display = 'none';
-                }, 100);
+                
+                // Pequeno delay para a UI atualizar antes de travar
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        createPlanet(val);
+                        loadingText.style.display = 'none';
+                    }, 50);
+                });
             });
             
             animate();
@@ -134,41 +138,39 @@
                 mesh.material.dispose();
             }
 
-            // GEOMETRIA: Icosaedro (Esfera de triângulos). O segundo parâmetro é o detalhe.
-            // Detalhe 0 = 20 triângulos. Detalhe 5 = ~20.000. Detalhe 7 = ~320.000.
+            // AQUI É ONDE O FILHO CHORA E A MÃE NÃO VÊ
+            // detailLevel define quantas vezes subdividir cada triângulo
             const geometry = new THREE.IcosahedronGeometry(2, detailLevel);
             
-            // DEFORMAÇÃO NA CPU (Torra o processador para criar o terreno)
-            // Vamos bagunçar a posição dos vértices para parecer um planeta rochoso
             const positions = geometry.attributes.position;
             const vector = new THREE.Vector3();
+            
+            // Deforma a esfera para virar um asteroide/planeta complexo
              for (let i = 0; i < positions.count; i++) {
                 vector.fromBufferAttribute(positions, i);
-                vector.normalize(); // Pega a direção a partir do centro
+                vector.normalize();
                 
-                // Adiciona um "ruído" aleatório na altura para fazer montanhas e vales
-                // Quanto maior o detalhe, mais pontiagudo fica.
-                const noise = Math.random() * 0.3; 
-                vector.multiplyScalar(2 + noise); // Raio base 2 + ruído
+                // Ruído matemático simples para criar montanhas
+                const noise = Math.sin(vector.x * 10) * Math.cos(vector.y * 10) * 0.2;
+                vector.multiplyScalar(2 + noise); 
                 
                 positions.setXYZ(i, vector.x, vector.y, vector.z);
             }
-            geometry.computeVertexNormals(); // Recalcula as normais para a luz bater certo nas novas montanhas
+            geometry.computeVertexNormals();
 
-            // O MATERIAL CARO (StandardMaterial com física de luz)
             const material = new THREE.MeshStandardMaterial({ 
-                color: 0x8B4513, // Cor de rocha/terra avermelhada
-                roughness: 0.9,   // Muito áspero (não reflete como espelho)
-                metalness: 0.1,   // Pouco metálico
-                flatShading: detailLevel < 5 ? true : false // Flat shading em níveis baixos fica estiloso, smooth nos altos
+                color: 0x8B4513, 
+                roughness: 0.8,
+                metalness: 0.2,
+                flatShading: detailLevel < 6 // Fica liso (smooth) se for muito detalhado
             });
 
             mesh = new THREE.Mesh(geometry, material);
-            mesh.castShadow = true; // O planeta GERA sombra
-            mesh.receiveShadow = true; // O planeta RECEBE sua própria sombra (auto-sombreamento)
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
             scene.add(mesh);
 
-            // Atualiza contagem aproximada de triângulos na tela
+            // Contagem real de triângulos para você monitorar o peso
             const triCount = geometry.index ? geometry.index.count / 3 : positions.count / 3;
             document.getElementById('tri-count').innerText = Math.round(triCount).toLocaleString();
         }
@@ -181,17 +183,15 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            
-            controls.update(); // Necessário para o OrbitControls funcionar
+            controls.update();
 
-            // Move a luz para as sombras mudarem em tempo real (MUITO PESADO)
-            const time = Date.now() * 0.0005;
-            mainLight.position.x = Math.sin(time) * 5;
-            mainLight.position.z = Math.cos(time) * 5;
+            // Move a luz para as sombras serem dinâmicas (PESADO)
+            const time = Date.now() * 0.001;
+            mainLight.position.x = Math.sin(time) * 6;
+            mainLight.position.z = Math.cos(time) * 6;
             
             renderer.render(scene, camera);
 
-            // Contador FPS
             const now = performance.now();
             frameCount++;
             if (now - lastTime >= 1000) {
