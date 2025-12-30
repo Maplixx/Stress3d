@@ -3,146 +3,174 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>S9 Nightmare Stress Test</title>
+    <title>S9 Ultimate Shadow Planet</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: monospace; }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
         
-        #controls {
-            position: absolute;
-            bottom: 10px; left: 2%; width: 96%;
-            background: rgba(40, 0, 0, 0.9); /* Vermelho de alerta */
-            padding: 15px; border-radius: 8px; color: #ff5555;
-            border: 2px solid red;
-            box-sizing: border-box;
+        #controls-container {
+            position: absolute; bottom: 0; left: 0; width: 100%;
+            background: rgba(20, 20, 20, 0.8); color: white;
+            padding: 15px 20px; box-sizing: border-box;
+            border-top: 2px solid #ff5500;
+            backdrop-filter: blur(5px);
         }
         #stats-box {
             position: absolute; top: 10px; left: 10px;
-            background: rgba(0,0,0,0.7); padding: 5px 10px;
-            color: #00ff00; font-size: 20px; border-radius: 4px;
-            font-weight: bold;
+            background: rgba(0,0,0,0.7); padding: 8px;
+            color: #00ff00; font-size: 18px; border-radius: 4px; font-weight: bold;
+            border: 1px solid #00ff00;
         }
-
-        input[type=range] { width: 100%; margin: 15px 0; accent-color: red; }
-        .info-text { display: flex; justify-content: space-between; font-size: 16px; margin-bottom: 5px; color: white;}
-        .warning { text-align: center; font-size: 12px; color: orange; margin-top: 5px;}
+        input[type=range] { width: 100%; margin: 15px 0; accent-color: #ff5500; }
+        .info-text { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .warning { text-align: center; font-size: 12px; color: #ff5500; margin-top: 8px;}
+        #loading { position: absolute; top:50%; left:50%; transform:translate(-50%, -50%); color: orange; display: none;}
     </style>
 
     <script type="importmap">
     {
         "imports": {
-            "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
         }
     }
     </script>
 </head>
 <body>
+    <div id="stats-box">FPS: <span id="fps-counter">...</span></div>
+    <div id="loading">Gerando Geometria Complexa...</div>
 
-    <div id="stats-box">FPS: <span id="fps-counter">Let's Go</span></div>
-
-    <div id="controls">
+    <div id="controls-container">
         <div class="info-text">
-            <span>Nível de Pesadelo (Segs): <b id="seg-display" style="color:red; font-size:1.2em;">50</b></span>
+            <span>Subdivisão (Complexidade): <b id="seg-display" style="color:#ff5500;">3</b></span>
         </div>
-        <input type="range" id="stress-slider" min="50" max="250" value="50" step="10">
-        <div style="text-align:center; margin-top:5px; font-size:14px; color:#fff;">
-            Vértices Totais: <span id="vert-count" style="color:cyan">Calculando...</span>
+        <input type="range" id="stress-slider" min="1" max="8" value="3" step="1">
+        <div style="text-align:center; font-size:13px; color:#ccc;">
+            Triângulos Aprox: <span id="tri-count" style="color:cyan">Calculando...</span>
         </div>
-        <div class="warning">⚠️ ACIMA DE 150 PODE TRAVAR SEU NAVEGADOR ⚠️</div>
+         <div class="warning">⚠️ Nível 7 ou 8 pode fechar o navegador por falta de RAM! Arraste e gire o planeta.</div>
     </div>
 
     <script type="module">
         import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-        let camera, scene, renderer, mesh;
-        let positionsOriginal; // Para guardar as posições originais dos vértices
+        let camera, scene, renderer, mesh, controls;
         let lastTime = performance.now();
         let frameCount = 0;
         const fpsDisplay = document.getElementById('fps-counter');
-        let clock = new THREE.Clock(); // Para animação de onda
+        const loading text = document.getElementById('loading');
+        const mainLight = new THREE.DirectionalLight(0xffffff, 3); // Luz do Sol forte
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x110000); // Fundo vermelho escuro
-            scene.fog = new THREE.FogExp2(0x110000, 0.05); // Neblina para pesar mais
+            scene.background = new THREE.Color(0x050505); // Espaço escuro
 
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.z = 9;
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
+            // Câmera mais perto e mais alta para ver as sombras
+            camera.position.set(0, 3, 5);
 
-            // Renderizador forçando alta performance
-            renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance", precision: "highp" });
+            // RENDERIZADOR COM SOMBRAS ATIVADAS (O peso pesado)
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setPixelRatio(window.devicePixelRatio); 
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true; // ATIVA AS SOMBRAS
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Sombras suaves (mais pesado)
             document.body.appendChild(renderer.domElement);
 
-            // LUZES (O material novo precisa delas para pesar)
-            const ambientLight = new THREE.AmbientLight(0x444444);
-            scene.add(ambientLight);
-            
-            const light1 = new THREE.PointLight(0xffffff, 2, 50);
-            light1.position.set(10, 10, 10);
-            scene.add(light1);
-            
-            const light2 = new THREE.PointLight(0xff0000, 3, 50); // Luz vermelha intensa
-            light2.position.set(-10, -5, 5);
-            scene.add(light2);
+            // Controles para mexer (OrbitControls)
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // Movimento suave
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = true; // Começa girando devagar
+            controls.autoRotateSpeed = 0.5;
 
-            // Cria o objeto inicial
-            createNightmareCube(50);
+            // --- ILUMINAÇÃO CARA ---
+            scene.add(new THREE.AmbientLight(0x222222)); // Luz ambiente fraca
+
+            // A Luz que gera sombras
+            mainLight.position.set(5, 5, 5);
+            mainLight.castShadow = true; // ESSA LUZ GERA SOMBRA
+            // Configuração da qualidade da sombra (quanto maior o mapSize, mais memória de vídeo usa)
+            mainLight.shadow.mapSize.width = 2048; 
+            mainLight.shadow.mapSize.height = 2048;
+            mainLight.shadow.camera.near = 0.5;
+            mainLight.shadow.camera.far = 20;
+            scene.add(mainLight);
+            
+            // Adiciona um "chão" invisível só para receber a sombra do planeta
+            const planeGeo = new THREE.PlaneGeometry(20, 20);
+            const planeMat = new THREE.ShadowMaterial({ opacity: 0.3 }); // Só mostra a sombra
+            const plane = new THREE.Mesh(planeGeo, planeMat);
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.y = -2.5;
+            plane.receiveShadow = true;
+            scene.add(plane);
+
+            // Cria o planeta inicial (nível 3)
+            createPlanet(3);
 
             window.addEventListener('resize', onWindowResize);
             
-            // Slider
-            document.getElementById('stress-slider').addEventListener('change', (e) => {
-                // Usamos 'change' em vez de 'input' para só recriar quando soltar o dedo, evita travar enquanto arrasta
+            // Evento do Slider
+            const slider = document.getElementById('stress-slider');
+            slider.addEventListener('change', (e) => {
                 const val = parseInt(e.target.value);
                 document.getElementById('seg-display').innerText = val;
-                createNightmareCube(val);
+                // Mostra carregando e dá um tempinho pro navegador respirar
+                loadingText.style.display = 'block';
+                setTimeout(() => {
+                     createPlanet(val);
+                     loadingText.style.display = 'none';
+                }, 100);
             });
             
             animate();
         }
 
-        function createNightmareCube(segments) {
+        function createPlanet(detailLevel) {
             if(mesh) {
                 scene.remove(mesh);
                 mesh.geometry.dispose();
                 mesh.material.dispose();
             }
 
-            document.getElementById('vert-count').innerText = "Gerando geometria gigante... Aguarde.";
-
-            // Um pequeno timeout para a UI atualizar antes de travar gerando a geometria
-            setTimeout(() => {
-                const geometry = new THREE.BoxGeometry(5, 5, 5, segments, segments, segments);
+            // GEOMETRIA: Icosaedro (Esfera de triângulos). O segundo parâmetro é o detalhe.
+            // Detalhe 0 = 20 triângulos. Detalhe 5 = ~20.000. Detalhe 7 = ~320.000.
+            const geometry = new THREE.IcosahedronGeometry(2, detailLevel);
+            
+            // DEFORMAÇÃO NA CPU (Torra o processador para criar o terreno)
+            // Vamos bagunçar a posição dos vértices para parecer um planeta rochoso
+            const positions = geometry.attributes.position;
+            const vector = new THREE.Vector3();
+             for (let i = 0; i < positions.count; i++) {
+                vector.fromBufferAttribute(positions, i);
+                vector.normalize(); // Pega a direção a partir do centro
                 
-                const count = geometry.attributes.position.count;
-                const colors = [];
-                const color = new THREE.Color();
-
-                for (let i = 0; i < count; i++) {
-                    // Cores mais vibrantes e caóticas
-                    color.setHSL(Math.random(), 1.0, Math.random() * 0.5 + 0.2);
-                    colors.push(color.r, color.g, color.b);
-                }
-                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                // Adiciona um "ruído" aleatório na altura para fazer montanhas e vales
+                // Quanto maior o detalhe, mais pontiagudo fica.
+                const noise = Math.random() * 0.3; 
+                vector.multiplyScalar(2 + noise); // Raio base 2 + ruído
                 
-                // Clona as posições para a animação de onda
-                positionsOriginal = geometry.attributes.position.clone();
+                positions.setXYZ(i, vector.x, vector.y, vector.z);
+            }
+            geometry.computeVertexNormals(); // Recalcula as normais para a luz bater certo nas novas montanhas
 
-                // MATERIAL MAIS PESADO (Phong reage à luz)
-                // vertexColors: true faz ele ignorar a cor do material e usar a dos vértices, 
-                // mas ainda calcula a iluminação sobre elas.
-                const material = new THREE.MeshPhongMaterial({ 
-                    vertexColors: true,
-                    shininess: 100, // Brilho metálico para pesar o cálculo
-                    flatShading: true // Faz cada triângulo ser único, mais pesado que suave
-                });
+            // O MATERIAL CARO (StandardMaterial com física de luz)
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0x8B4513, // Cor de rocha/terra avermelhada
+                roughness: 0.9,   // Muito áspero (não reflete como espelho)
+                metalness: 0.1,   // Pouco metálico
+                flatShading: detailLevel < 5 ? true : false // Flat shading em níveis baixos fica estiloso, smooth nos altos
+            });
 
-                mesh = new THREE.Mesh(geometry, material);
-                scene.add(mesh);
+            mesh = new THREE.Mesh(geometry, material);
+            mesh.castShadow = true; // O planeta GERA sombra
+            mesh.receiveShadow = true; // O planeta RECEBE sua própria sombra (auto-sombreamento)
+            scene.add(mesh);
 
-                document.getElementById('vert-count').innerText = (count / 1000000).toFixed(2) + " MILHÕES de vértices";
-            }, 100);
+            // Atualiza contagem aproximada de triângulos na tela
+            const triCount = geometry.index ? geometry.index.count / 3 : positions.count / 3;
+            document.getElementById('tri-count').innerText = Math.round(triCount).toLocaleString();
         }
 
         function onWindowResize() {
@@ -153,41 +181,22 @@
 
         function animate() {
             requestAnimationFrame(animate);
-            const time = clock.getElapsedTime();
+            
+            controls.update(); // Necessário para o OrbitControls funcionar
 
-            if(mesh) {
-                mesh.rotation.x += 0.01;
-                mesh.rotation.y += 0.015;
-
-                // --- O GARGALO DA CPU ---
-                // Deforma a geometria a cada frame. Isso é extremamente pesado para a CPU
-                // pois ela tem que iterar sobre milhões de pontos em JS antes de mandar pra GPU.
-                const positions = mesh.geometry.attributes.position;
-                const initialPositions = positionsOriginal;
-                
-                for (let i = 0; i < positions.count; i++) {
-                    const x = initialPositions.getX(i);
-                    const y = initialPositions.getY(i);
-                    const z = initialPositions.getZ(i);
-
-                    // Cria uma onda maluca baseada na posição e no tempo
-                    const wave = Math.sin(x * 2 + time * 3) * Math.cos(y * 2 + time * 2) * 0.3;
-                    
-                    // Aplica a deformação apenas no eixo Z local
-                    positions.setZ(i, z + wave);
-                }
-                // Avisa a engine que os vértices mudaram e precisam serreenviados para a GPU
-                positions.needsUpdate = true;
-            }
-
+            // Move a luz para as sombras mudarem em tempo real (MUITO PESADO)
+            const time = Date.now() * 0.0005;
+            mainLight.position.x = Math.sin(time) * 5;
+            mainLight.position.z = Math.cos(time) * 5;
+            
             renderer.render(scene, camera);
 
+            // Contador FPS
             const now = performance.now();
             frameCount++;
             if (now - lastTime >= 1000) {
                 fpsDisplay.innerText = frameCount;
-                // Muda a cor do FPS dependendo do sofrimento
-                fpsDisplay.style.color = frameCount < 15 ? 'red' : (frameCount < 30 ? 'orange' : '#00ff00');
+                fpsDisplay.style.color = frameCount < 20 ? 'red' : (frameCount < 40 ? 'orange' : '#00ff00');
                 frameCount = 0;
                 lastTime = now;
             }
